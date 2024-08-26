@@ -75,3 +75,5 @@ def plot_heat_map(agents, targets, region_radius, error_probability_fn, alpha):
     plt.xlim(-region_radius, region_radius)
     plt.ylim(-region_radius, region_radius)
     plt.show()
+
+
