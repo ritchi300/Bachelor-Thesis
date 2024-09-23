@@ -1,263 +1,413 @@
+from joblib import Parallel, delayed
 import numpy as np
 import matplotlib.pyplot as plt
 import plot_module as pm
 from scipy.integrate import dblquad
+from scipy.stats import zipf as zipf
 
-# Define constants 
-D = 8  # Number of agents
-region_radius = 4  # Region radius
+
+ENABLE_ENERGY_CONSTRAINTS = True  # Set to True to enable energy constraints
+MAX_ENERGY = 100  # Maximum energy agents can store
+MOVEMENT_ENERGY_COST = 5   # Energy cost for moving
+BROADCAST_ENERGY_COST = 3 # Energy cost for broadcasting
+ENERGY_HARVEST_RATE = 0  # Energy harvested per epoch (stochastic)
+
+
+# Define constants
+D = 10  # Number of agents
+region_radius = 1  # Region radius
 Y_num = 8  # Number of target points
-alpha = 5  # Detection radius
-epochs = 8000 # Number of iterations
-delta = 0.001
-num_samples = 10
-detection_threshold = 0.1  # Threshold distance for detection
-tau = 5  # Information delay in steps
-num_trials = 4  
-initial_energy = 100  # Initial energy for each agent
-movement_energy_cost = 1  # Energy cost per movement step
-communication_energy_cost = 0.1  # Energy cost per communication
+epochs = 100  # Number of iterations
+delta = 0.0001  # Global delta variable
+num_samples = 5  # Number of stochasticâ samples
+tau = 1  # Communication delay in steps
+num_trials = 1  # Number of trials to run
+kappa = 10  # kappa for penalty scaling
+xi_samples = np.random.uniform(30, 31, num_samples)  # Random xi samples
+z = 1.5  # Zipf parameter 
+max_broadcast_time = 100  # Maximum broadcast time
 
-# Randomly initialize agent positions within the unit disk
-def initialize_positions(radius, num_points):
-    points = np.random.uniform(-radius, radius, (num_points, 2))
-    points = points[np.sqrt(np.sum(points**2, axis=1)) <= radius]
-    points = np.array([point if np.linalg.norm(point) <= radius else point / np.linalg.norm(point) for point in points])
-    return points
-
-agents = initialize_positions(region_radius, D)
-original_agents = agents.copy()
-Y = initialize_positions(region_radius, Y_num)
-
-# Function to calculate the detection probability
-def detection_probability(agent, target, xi_sample, alpha):
-    return np.exp(-xi_sample * (alpha * np.linalg.norm(agent - target)) ** 2)
-
-# Function for sensor detection
-def sensor_detection(agent, targets, detection_threshold, pursued_targets):
-    for target in targets:
-        if np.linalg.norm(agent - target) < detection_threshold and tuple(target) not in pursued_targets:
-            return target
-    return None
-
-# Function to calculate the error probability
-def error_probability(agents, target, xi_sample, alpha):
-    detection_probs = np.exp(-xi_sample * (alpha * np.linalg.norm(agents - target, axis=1)) ** 2)
-    return np.prod(1 - detection_probs)
-
-# Integration over the unit disk
-def integrand(theta, r, agents, xi_samples, alpha):
-    x = r * np.cos(theta)
-    y = r * np.sin(theta)
-    point = np.array([x, y])
-    return np.mean([error_probability(agents, point, xi_sample, alpha) for xi_sample in xi_samples])
-
-def F(agents, alpha):
-    xi_samples = np.random.uniform(0.5, 1.5, num_samples)
-    result, _ = dblquad(integrand, 0, 1, lambda r: 0, lambda r: 2 * np.pi, args=(agents, xi_samples, alpha))
-    return result / np.pi  
-
-# Function to calculate the penalty
-def P(agents, alpha, targets):
-    penalty = 0
-    xi_samples = np.random.uniform(0.5, 1.5, num_samples)
-    for target in targets:
-        penalty += np.mean([max(0, error_probability(agents, target, xi_sample, alpha) - delta) ** 2 for xi_sample in xi_samples])
-    return penalty / len(targets)
-
-# Move an agent towards a target
-def move_towards(agent, target, learning_rate, agent_energy, agent_index):
-    direction = target - agent
-    norm = np.linalg.norm(direction)
-    if norm > 0 and agent_energy[agent_index] >= movement_energy_cost:
-        direction = direction / norm
-        agent_energy[agent_index] -= movement_energy_cost  
-        return agent + learning_rate * direction
-    return agent  
-
-visited_positions = [set() for _ in agents]
-
-# Roam an agent randomly within the region
-def roam(agent, region_radius, learning_rate, visited_positions, agent_energy, agent_index):
-    if agent_energy[agent_index] < movement_energy_cost:
-        return agent  
-
-    while True:
-        direction = np.random.uniform(-1, 1, 2)
-        norm = np.linalg.norm(direction)
-        if norm > 0:
-            direction /= norm
-        new_position = agent + learning_rate * direction
-        if np.linalg.norm(new_position) <= region_radius and tuple(new_position) not in visited_positions:
-            visited_positions.add(tuple(new_position))
-            agent_energy[agent_index] -= movement_energy_cost  
-            return new_position
-    return agent
-
-# Compute the gradients for agents
-def compute_gradients(agents, alpha, targets):
-    gradients = np.zeros_like(agents)
-    xi_samples = np.random.uniform(0.5, 1.5, num_samples)
-    for i, agent in enumerate(agents):
-        for target in targets:
-            for xi_sample in xi_samples:
-                detection_prob = detection_probability(agent, target, xi_sample, alpha)
-                error_prob = 1 - detection_prob
-                grad = 2 * (error_prob - delta) * detection_prob * (agent - target) * (alpha ** 2) * xi_sample
-                gradients[i] += grad
-    return gradients / (num_samples * len(targets))
-
-# Energy harvesting using Markov process
-num_states = 5  
-initial_distribution = np.array([0.2, 0.3, 0.2, 0.2, 0.1])
-
-# Generate a transition matrix for the Markov process
-def transition_matrix(t):
-    base_matrix = np.array([
-        [0.1, 0.2, 0.3, 0.2, 0.2],
-        [0.1, 0.2, 0.4, 0.2, 0.1],
-        [0.2, 0.2, 0.2, 0.2, 0.2],
-        [0.2, 0.3, 0.2, 0.2, 0.1],
-        [0.3, 0.2, 0.2, 0.2, 0.1]
-    ])
-    
-    time_factor = 0.1 * np.sin(t / 10.0)
-    modified_matrix = base_matrix + time_factor * np.random.rand(num_states, num_states)
-    modified_matrix = modified_matrix / modified_matrix.sum(axis=1, keepdims=True)
-    return modified_matrix
-
-# Simulate energy harvesting using the Markov process
-def simulate_markov_energy_harvest(num_steps):
-    current_state = np.random.choice(np.arange(num_states), p=initial_distribution)
-    harvested_energy = []
-    
-    for t in range(num_steps):
-        harvested_energy.append(current_state)
-        trans_matrix = transition_matrix(t)
-        current_state = np.random.choice(np.arange(num_states), p=trans_matrix[current_state])
-    
-    return np.array(harvested_energy)
-
-# Energy harvesting model using Markov process
-def harvest_energy_markov(agent_energy, t):
-    harvested_energy = simulate_markov_energy_harvest(len(agent_energy))
-    agent_energy += harvested_energy  # Add harvested energy to agent energy
-    return agent_energy
-
-# Generate zeta-distributed random variables
-def zeta_distribution(p, size):
-    return np.random.zipf(p, size)
-
-def share_positions(agents, waiting_times, wait_time, epoch, agent_energy):
-    for i, agent in enumerate(agents):
-        if wait_time[i] <= 0 and agent_energy[i] >= communication_energy_cost:  
-           
-    
-            agent_energy[i] -= communication_energy_cost  
-            wait_time[i] = waiting_times[i, epoch] if waiting_times is not None else 0
-        else:
-            wait_time[i] -= 1
-
-#  Stochastic Gradient Descent to optimize agent positions
-def sgd(agents, alpha, targets, epochs, tau, step_size_func, p=None):
-    F_values = []
-    P_values = []
-    pursued_targets = set()
-    position_history = [agents.copy()] * (tau + 1)
-    agent_energy = np.full(D, initial_energy)
-
-    wait_time = [0] * len(agents)
-    waiting_times = zeta_distribution(p, epochs * len(agents)).reshape((len(agents), epochs)) if p else None
-
-    for epoch in range(epochs):
-        step_size = step_size_func(epoch)
-        delayed_agents = position_history[0]
-
-        
-        agent_energy = harvest_energy_markov(agent_energy, epoch)
-
-        if epoch % 1 == 0:
-            print(f"Epoch {epoch}, Step Size: {step_size}, Energy Levels: {agent_energy}")
-
-        for i, agent in enumerate(agents):
-            target = sensor_detection(delayed_agents[i], targets, detection_threshold, pursued_targets)
-            if target is not None:
-                agents[i] = move_towards(agent, target, step_size, agent_energy, i)
-                pursued_targets.add(tuple(target))
-                if np.linalg.norm(agent - target) < detection_threshold:
-                    print(f"Agent {i} captured target {target} at epoch {epoch}")
-                    pursued_targets.remove(tuple(target))
-            else:
-               agents[i] = roam(agent, region_radius, step_size, visited_positions[i], agent_energy, i)
-            
-            share_positions(agents, waiting_times, wait_time, epoch, agent_energy)
-
-        gradients = compute_gradients(delayed_agents, alpha, targets)
-        agents -= step_size * gradients
-
-        position_history.append(agents.copy())
-        if len(position_history) > tau + 1:
-            position_history.pop(0)
-
-        obj_val = F(agents, alpha)
-        penalty_val = P(agents, alpha, targets)
-        F_values.append(obj_val)
-        P_values.append(penalty_val)
-
-        if epoch % 1000 == 0:
-            print(f"Epoch {epoch}: Objective Value {obj_val}, Penalty Value {penalty_val}")
-
-    return agents, F_values, P_values
-
-# Step size functions for SGD
-
+# Step size functions
 def step_size_rule_1(n):
     return 1 / ((n / 100) + 10)
 
 def step_size_rule_2(n, p):
-    return 1 / ((n ** (1 / (p - 1)) / 100) + 10)
+    # calculate q
+    q = min(0.5 * (1 / p - 1), 1)
+
+    # Avoid division by zero or negative powers
+    if n <= 0:
+        n = 1  
+
+    # Return step size
+    return 1 / ((n ** q / 100) + 10)
+
+# Zipf distribution for delays
+def zipf_delay(z, size=1):
+    zeta = np.random.zipf(z, size=size)
+    return zeta
+
+# Markov Energy Harvester
+class MarkovEnergyHarvester:
+    def __init__(self, states, transition_matrix_stationary):
+        self.states = states
+        self.transition_matrix_stationary = transition_matrix_stationary
+        self.current_state_index = np.random.choice(len(states))
+
+    def harvest_energy_stationary(self):
+        transition_probs = self.transition_matrix_stationary[self.current_state_index]
+        self.current_state_index = np.random.choice(len(self.states), p=transition_probs)
+        return self.states[self.current_state_index]
+
+# Non-Stationary Markov Energy Harvester
+class NonStationaryMarkovEnergyHarvester:
+    def __init__(self, states, transition_matrices_non_stationary):
+        self.states = states
+        self.transition_matrices_non_stationary = transition_matrices_non_stationary
+        self.current_state_index = np.random.choice(len(states))
+
+    def harvest_energy_non_stationary(self, time_step):
+        transition_matrix = self.transition_matrices_non_stationary[time_step % len(self.transition_matrices_non_stationary)]
+        transition_probs = transition_matrix[self.current_state_index]
+        self.current_state_index = np.random.choice(len(self.states), p=transition_probs)
+        return self.states[self.current_state_index]
+    
+class PositionHistory:
+    def __init__(self, tau):
+        self.tau = tau  # Communication delay
+        self.history = []  # Stores a list of (epoch, position) tuples
+
+    def store_position(self, position, epoch):
+        """
+        Store the current position of the agent at a given epoch.
+        """
+        self.history.append((epoch, position.copy()))  # Store epoch and position as a tuple
+        if len(self.history) > self.tau + 1:  # Keep history limited to tau + 1 entries
+            self.history.pop(0)  # Remove the oldest entry to maintain size
+
+    def get_delayed_position(self, current_epoch):
+        """
+        Return the position corresponding to a delayed epoch based on the communication delay tau.
+        """
+        if not self.history:
+            return None
+        delayed_epoch = current_epoch - self.tau  # Calculate the delayed epoch
+        for epoch, position in reversed(self.history):
+            if epoch <= delayed_epoch:  # Find the closest position for the delayed epoch
+                return position
+        return self.history[-1][1]  # Return the most recent position if none is found
 
 
+# Agent Class
+class Agent:
+    def __init__(self, initial_position, tau, energy_harvester):
+        self.position = np.array(initial_position, dtype=float)
+        self.tau = tau
+        self.history_manager = PositionHistory(tau)
+        self.trajectory = [self.position.copy()]
+        self.broadcasted_positions = []
+        self.history_manager.store_position(self.position, 0)
+        self.z = z
+        self.max_broadcast_time = max_broadcast_time
+        self.next_broadcast_epoch = self.get_next_broadcast_time()
+        self.energy = MAX_ENERGY
+        self.energy_harvester = energy_harvester  # Assign a Markov energy harvester instance
 
-def reset_agents_and_plot(agents, Y, region_radius, error_probability, alpha, F_values, P_values):
-    pm.plot_objective_and_penalty(F_values, P_values)
-    plt.figure()
-    plt.scatter(agents[:, 0], agents[:, 1], c='blue', label='Agents')
-    plt.scatter(Y[:, 0], Y[:, 1], c='red', marker='x', label='Targets')
-    plt.xlim([-region_radius, region_radius])
-    plt.ylim([-region_radius, region_radius])
-    plt.title('Final Positions of Agents and Targets')
+    def get_next_broadcast_time(self):
+        raw_delay = zipf_delay(self.z, size=1)[0]
+        delay = min(raw_delay, self.max_broadcast_time)
+        return delay
+
+    def harvest_energy(self, time_step):
+        # Check if the harvester is stationary or non-stationary and harvest accordingly
+        if isinstance(self.energy_harvester, MarkovEnergyHarvester):
+            harvested = self.energy_harvester.harvest_energy_stationary()
+        else:
+            harvested = self.energy_harvester.harvest_energy_non_stationary(time_step)
+        
+        self.energy = min(MAX_ENERGY, self.energy + harvested)
+        print(f"Epoch {time_step}: Agent harvested {harvested:.2f} energy. Current energy: {self.energy:.2f}")
+
+    def can_broadcast(self):
+        return self.energy >= BROADCAST_ENERGY_COST
+
+    def can_move(self):
+        return self.energy >= MOVEMENT_ENERGY_COST
+
+    def get_delayed_position(self, current_epoch):
+        zipf_delay_value = self.get_next_broadcast_time()
+        delayed_epoch = current_epoch - zipf_delay_value
+        for epoch, position in reversed(self.history_manager.history):
+            if epoch <= delayed_epoch:
+                return position
+        return self.history_manager.history[-1][1]
+
+    def detection_probability(self, point, xi_sample):
+        distance = np.linalg.norm(self.position - point)
+        detection_prob = np.exp(-xi_sample * distance ** 2)
+        return np.clip(detection_prob, 0, 1)
+
+    def update_position(self, gradient, step_size):
+        if ENABLE_ENERGY_CONSTRAINTS and not self.can_move():
+            print(f"Agent cannot move due to insufficient energy. Current energy: {self.energy:.2f}")
+            return
+        
+        new_position = self.position - step_size * gradient
+        if np.linalg.norm(new_position) > region_radius:
+            new_position = new_position / np.linalg.norm(new_position) * region_radius
+        self.position = new_position
+        self.trajectory.append(self.position.copy())
+
+        if ENABLE_ENERGY_CONSTRAINTS:
+            self.energy -= MOVEMENT_ENERGY_COST
+            print(f"Agent used {MOVEMENT_ENERGY_COST:.2f} energy for movement. Remaining energy: {self.energy:.2f}")
+
+    def share_position(self, epoch):
+        if epoch >= self.next_broadcast_epoch and (not ENABLE_ENERGY_CONSTRAINTS or self.can_broadcast()):
+            self.history_manager.store_position(self.position, epoch)
+            self.broadcasted_positions.append(self.position.copy())
+            self.next_broadcast_epoch = epoch + self.get_next_broadcast_time()
+
+            if ENABLE_ENERGY_CONSTRAINTS:
+                self.energy -= BROADCAST_ENERGY_COST
+                print(f"Agent used {BROADCAST_ENERGY_COST:.2f} energy for broadcasting. Remaining energy: {self.energy:.2f}")
+
+            return True
+        return False
+
+
+class SGD:
+    def __init__(self, agents, targets, epochs, tau, step_size_func, delta, kappa):
+        self.agents = agents
+        self.targets = targets
+        self.epochs = epochs
+        self.tau = tau
+        self.step_size_func = step_size_func
+        self.delta = delta
+        self.kappa = kappa
+        self.xi_samples = xi_samples
+
+    def compute_gradients(self, current_epoch):
+        """
+        Compute the combined gradient for all agents based on F(x) and P(x) using delayed positions.
+        """
+        gradients = np.zeros((len(self.agents), 2))  # Gradient for each agent's position (x, y)
+
+        for target in self.targets:
+            for xi_sample in self.xi_samples:
+                detection_errors = np.ones(len(self.agents))  # Initialize detection error for each agent
+                
+                # Calculate detection errors across all agents
+                for i, agent in enumerate(self.agents):
+                    delayed_position = agent.get_delayed_position(current_epoch)  # Get delayed position
+                    detection_prob = agent.detection_probability(target, xi_sample)
+                    detection_errors[i] *= (1 - detection_prob)
+                
+                for i, agent in enumerate(self.agents):
+                    delayed_position = agent.get_delayed_position(current_epoch)  # Get delayed position
+                    detection_prob_self = agent.detection_probability(target, xi_sample)
+                    distance_vector = delayed_position - target
+                    detection_grad = 2 * xi_sample * detection_prob_self * distance_vector
+
+                    # Accumulate error gradient
+                    error_grad = -detection_errors[i] * detection_grad / (1 - detection_prob_self)
+                    gradients[i] += error_grad
+                    
+                    # Calculate penalty gradient
+                    if detection_errors[i] > self.delta:
+                        penalty_grad = 2 * (detection_errors[i] - self.delta) * detection_grad
+                        gradients[i] += penalty_grad
+
+        return gradients / (len(self.targets) * len(self.xi_samples))
+
+    def run(self):
+        position_history = np.zeros((self.epochs, len(self.agents), 2))
+        gradient_norms = []
+
+        for epoch in range(self.epochs):
+            step_size = self.step_size_func(epoch)
+
+            # Compute gradients for all agents using delayed positions
+            gradients = self.compute_gradients(epoch)
+
+            # Compute gradient norms for convergence tracking
+            grad_norm = np.linalg.norm(gradients, axis=1).mean()
+            gradient_norms.append(grad_norm)
+
+            # Print progress every 10 epochs
+            if epoch % 10 == 0:
+                f_value = self.f()
+                p_value = self.calculate_P()
+                f_F_value = self.calculate_F()
+                
+                print(f"Epoch {epoch}: f(x) = {f_value}, P(x) = {p_value}, F(x) = {f_F_value}")
+                print(f"Avg Gradient Norm at Epoch {epoch}: {grad_norm:.6f}")
+                
+            # Update each agent's position
+            for i, agent in enumerate(self.agents):
+                agent.update_position(gradients[i], step_size)
+                agent.share_position(epoch)
+                agent.harvest_energy(epoch)  # Harvest energy, and print harvested energy details
+                if agent.share_position(epoch):
+                    print(f"Agent {i + 1} broadcasted position at epoch {epoch}")
+                
+            # Store the current positions for history
+            position_history[epoch] = np.array([agent.position for agent in self.agents])
+
+        return position_history, gradient_norms
+
+    def calculate_F(self):
+        """Berechne den Fehlerterm F(x), der die durchschnittliche Detektionsfehlerwahrscheinlichkeit für alle Zielpunkte enthält."""
+        global xi_samples 
+
+        def integrand(theta, r):
+            x = r * np.cos(theta)
+            y = r * np.sin(theta)
+            point = np.array([x, y])
+
+            detection_error_prob = np.mean(
+                [np.sum([agent.detection_probability(point, xi_sample) for agent in self.agents])
+                 for xi_sample in xi_samples]
+            )
+            return  detection_error_prob  
+
+        result, _ = dblquad(integrand, 0, 2 * np.pi, lambda r: 0, lambda r: region_radius)
+        
+        return result
+
+    def calculate_P(self):
+        """Berechne den Strafterm P(x), der die Strafen für Detektionsfehler berechnet, die den Schwellenwert delta überschreiten."""
+        penalties = []
+        for agent in self.agents:
+            distances = np.linalg.norm(agent.position - self.targets, axis=1)
+            detection_probs = np.exp(-xi_samples[:, np.newaxis] * distances ** 2)
+            error_probs = 1 - detection_probs
+            error_means = np.mean(error_probs, axis=0)
+            penalties.append(np.maximum(0, error_means - self.delta) ** 2)
+        return np.mean(penalties) / len(self.targets)
+
+    def calculate_F_P_values(self, position_history):
+        F_values = []
+        P_values = []
+
+        for epoch_positions in position_history:
+            for i, pos in enumerate(epoch_positions):
+                self.agents[i].position = pos
+            F_values.append(self.calculate_F())
+            P_values.append(self.calculate_P())
+
+        return F_values, P_values
+
+    def f(self):
+        """Calculate the full objective function f(x) = F(x) + κ * P(x)."""
+        F_x = self.calculate_F()  # Berechne den Fehlerterm F(x)
+        P_x = self.calculate_P()  # Berechne den Strafterm P(x)
+        f_x = F_x + self.kappa * P_x  # Kombiniere beide Terme
+        return f_x
+
+
+def initialize_positions(radius, num_points):
+    points = np.random.uniform(-radius, radius, (num_points, 2))
+    points = points[np.sqrt(np.sum(points**2, axis=1)) <= radius]
+    return points
+
+
+def run_multiple_trials(num_trials, Y, epochs, tau, step_size_func, delta, kappa):
+    results = Parallel(n_jobs=-1)(
+        delayed(run_single_trial)(Y, epochs, tau, step_size_func, delta, kappa, i)
+        for i in range(num_trials)
+    )
+
+    all_F_values, all_P_values, all_gradient_norms = zip(*results)
+
+    np.save('F_values.npy', all_F_values)
+    np.save('P_values.npy', all_P_values)
+
+    plot_mean_trajectory(np.mean(all_F_values, axis=0), np.std(all_F_values, axis=0), 'F(x)')
+    plot_mean_trajectory(np.mean(all_P_values, axis=0), np.std(all_P_values, axis=0), 'P(x)')
+    plot_gradient_norms(np.mean(all_gradient_norms, axis=0))
+
+
+def plot_detection_error_heatmap(agents, targets, region_radius):
+    grid_size = 100
+    x = np.linspace(-region_radius, region_radius, grid_size)
+    y = np.linspace(-region_radius, region_radius, grid_size)
+    X, Y = np.meshgrid(x, y)
+
+    Z = np.zeros_like(X)
+
+    global xi_samples 
+
+    for i in range(grid_size):
+        for j in range(grid_size):
+            point = np.array([X[i, j], Y[i, j]])
+            detection_error_prob = np.mean(
+                [np.prod([1 - agent.detection_probability(point, xi_sample) for agent in agents])
+                 for xi_sample in xi_samples]
+            )
+            Z[i, j] = detection_error_prob
+
+    plt.figure(figsize=(8, 8))
+
+    plt.contourf(X, Y, Z, cmap='viridis')
+    plt.colorbar(label='Detection Error Probability')
+
+    plt.scatter([agent.position[0] for agent in agents], 
+                [agent.position[1] for agent in agents], 
+                c='blue', label='Agent', s=50, edgecolor='black')
+
+    plt.scatter([target[0] for target in targets], 
+                [target[1] for target in targets], 
+                c='red', marker='o', label='Target', s=50)
+
+    unit_disk = plt.Circle((0, 0), region_radius, color='black', fill=False, linestyle='--', linewidth=2)
+    plt.gca().add_artist(unit_disk)
+
+    plt.xlim(-region_radius, region_radius)
+    plt.ylim(-region_radius, region_radius)
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.title('Heat Map of Detection Error Probability with Targets (Red Dots) and Unit Disk')
     plt.legend()
     plt.grid(True)
+    plt.gca().set_aspect('equal', adjustable='box')
     plt.show()
-    pm.plot_heat_map(agents, Y, region_radius, error_probability, alpha)
-    return original_agents.copy()
 
-def run_multiple_trials(num_trials, agents, alpha, Y, epochs, tau, step_size_func, p=None):
-    all_F_values = []
-    all_P_values = []
+
+def run_single_trial(Y, epochs, tau, step_size_func, delta, kappa, trial_idx):
+    # Initialize energy harvesters for each agent
+    # You can switch between stationary or non-stationary here
+    states = [0, 5, 10]  # Example energy harvest states
+    stationary_transition_matrix = np.array([
+        [0.8, 0.1, 0.1],  # Probabilities of staying in state or transitioning to others
+        [0.2, 0.7, 0.1],
+        [0.1, 0.2, 0.7]
+    ])
     
-    for _ in range(num_trials):
-        agents = original_agents.copy()
-        pm.plot_initial_positions(agents, Y, region_radius)
-        agents, F_values, P_values = sgd(agents, alpha, Y, epochs, tau, step_size_func, p)
-        all_F_values.append(F_values)
-        all_P_values.append(P_values)
-        pm.plot_heat_map(agents, Y, region_radius, error_probability, alpha)
-
-    all_F_values = np.array(all_F_values)
-    all_P_values = np.array(all_P_values)
-
-    # Calculate mean and standard deviation 
-    mean_F_values = np.mean(all_F_values, axis=0)
-    std_F_values = np.std(all_F_values, axis=0)
-
-    mean_P_values = np.mean(all_P_values, axis=0)
-    std_P_values = np.std(all_P_values, axis=0)
-
+    # Create Markov energy harvesters
+    energy_harvesters = [MarkovEnergyHarvester(states, stationary_transition_matrix) for _ in range(D)]
     
-    plot_mean_trajectory(mean_F_values, std_F_values, 'F(x)')
-    plot_mean_trajectory(mean_P_values, std_P_values, 'P(x)')
+    # Initialize agents with the corresponding energy harvesters
+    initial_positions = initialize_positions(region_radius, D)
+    agents = [Agent(position, tau=tau, energy_harvester=energy_harvester) 
+              for position, energy_harvester in zip(initial_positions, energy_harvesters)]
+    
+    # Plot the initial positions
+    pm.plot_initial_positions(np.array([agent.position for agent in agents]), Y, region_radius)
+
+    # Run the SGD optimization
+    sgd_instance = SGD(agents, Y, epochs, tau, step_size_func, delta, kappa)
+    position_history, gradient_norms = sgd_instance.run()
+
+    # Plot trajectories and heatmaps
+    plot_trajectories_with_delays(position_history, agents, Y, region_radius)
+    plot_detection_error_heatmap(agents, Y, region_radius) 
+    
+    # Calculate F and P values
+    F_values, P_values = sgd_instance.calculate_F_P_values(position_history)
+
+    return F_values, P_values, gradient_norms
+
 
 def plot_mean_trajectory(mean_values, std_values, label):
     plt.figure()
@@ -269,10 +419,80 @@ def plot_mean_trajectory(mean_values, std_values, label):
     plt.show()
 
 
-print("Running multiple trials with Step Size Rule 1")
-run_multiple_trials(num_trials, agents, alpha, Y, epochs, tau, step_size_rule_1)
+def plot_gradient_norms(gradient_norms, window_size=10):
+    moving_avg = np.convolve(gradient_norms, np.ones(window_size) / window_size, mode='valid')
+    plt.figure()
+    plt.plot(moving_avg, label="Gradient Norm (Moving Avg)")
+    plt.xlabel('Iterations')
+    plt.ylabel('Gradient Norm')
+    plt.legend()
+    plt.show()
 
-print("Running multiple trials with Step Size Rule 2")
+
+def plot_convergence(F_values, P_values):
+    epochs = len(F_values)
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(F_values, label='F(x)', color='blue')
+    plt.xlabel('Epochs')
+    plt.ylabel('F(x)')
+    plt.title('Convergence of F(x)')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(P_values, label='P(x)', color='red')
+    plt.xlabel('Epochs')
+    plt.ylabel('P(x)')
+    plt.title('Convergence of P(x)')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+
+def plot_trajectories_with_delays(position_history, agents, Y, region_radius):
+    """
+    Plot the agent trajectories while highlighting the delayed broadcasts.
+    """
+    plt.figure(figsize=(8, 8))
+
+    # Plot the unit disk (region boundary)
+    unit_disk = plt.Circle((0, 0), region_radius, color='black', fill=False, linestyle='--', linewidth=2)
+    plt.gca().add_artist(unit_disk)
+
+    # Plot agent trajectories and broadcast points
+    for i, agent in enumerate(agents):
+        positions = position_history[:, i, :]
+
+        # Plot the agent's trajectory
+        plt.plot(positions[:, 0], positions[:, 1], label=f'Agent {i+1}')
+
+        # Plot the positions where broadcasts happened
+        if agent.broadcasted_positions:
+            broadcasted_positions = np.array(agent.broadcasted_positions)
+            plt.scatter(broadcasted_positions[:, 0], broadcasted_positions[:, 1], 
+                        label=f'Broadcast {i+1}', edgecolor='black', color='blue', marker='o', s=50)
+
+    # Plot target positions
+    plt.scatter([target[0] for target in Y], [target[1] for target in Y], 
+                c='red', marker='x', label='Target', s=100)
+
+    # Set plot limits and labels
+    plt.xlim(-region_radius, region_radius)
+    plt.ylim(-region_radius, region_radius)
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.title('Agent Trajectories with Delayed Broadcasts')
+    plt.legend()
+    plt.grid(True)
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.show()
+
+# Run multiple trials
+Y = initialize_positions(region_radius, Y_num)
+run_multiple_trials(num_trials, Y, epochs, tau, step_size_rule_1, delta, kappa)
+
+# Run with different p-values for step_size_rule_2
 for p_value in {2, 3, 4, 5}:
-    print(f"Current p_value: {p_value}")
-    run_multiple_trials(num_trials, agents, alpha, Y, epochs, tau, lambda epoch: step_size_rule_2(epoch, p_value), p=p_value)
+    run_multiple_trials(num_trials, Y, epochs, tau, lambda epoch: step_size_rule_2(epoch, p_value), delta, kappa)
