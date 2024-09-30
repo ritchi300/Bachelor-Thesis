@@ -9,7 +9,7 @@ from scipy.stats import zipf
 D = 10  # Number of agents
 region_radius = 1  # Radius of the circular region where agents operate
 Y_num = 8  # Number of target points
-epochs = 100  # Number of iterations for the simulation
+epochs = 1000  # Number of iterations for the simulation
 delta = 0.0001  # Detection error threshold for penalties
 num_samples = 5  # Number of stochastic samples (for randomness in simulations)
 tau = 1  # Communication delay (in steps)
@@ -21,11 +21,9 @@ max_broadcast_time = 100  # Maximum allowed time for broadcasting positions
 
 # Step size rules for gradient descent
 def step_size_rule_1(n):
-    """Step size decreases as the number of iterations n increases."""
     return 1 / ((n / 100) + 10)
 
 def step_size_rule_2(n, p):
-    """Step size rule based on a parameter p. q controls how the step size decays."""
     # Calculate q based on p
     q = min(0.5 * (1 / p - 1), 1)
     if n <= 0:
@@ -34,7 +32,6 @@ def step_size_rule_2(n, p):
 
 # Zipf distribution to model delays in broadcasting positions
 def zipf_delay(z, size=1):
-    """Generate Zipf-distributed delays for communication."""
     zeta = np.random.zipf(z, size=size)
     return zeta
 
@@ -45,13 +42,13 @@ class PositionHistory:
         self.history = []  # List to store (epoch, position) 
 
     def store_position(self, position, epoch):
-        """Store the agent's position at a given epoch."""
+        
         self.history.append((epoch, position.copy()))  # Save a copy of the position
         if len(self.history) > self.tau + 1:  # Limit history size to tau + 1 entries
             self.history.pop(0)  # Remove the oldest entry
 
     def get_delayed_position(self, current_epoch):
-        """Retrieve the position of the agent at a delayed epoch."""
+        
         if not self.history:
             return None  # Return None if history is empty
         delayed_epoch = current_epoch - self.tau  # Calculate delayed epoch
