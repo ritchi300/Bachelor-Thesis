@@ -9,7 +9,7 @@ from scipy.stats import zipf
 D = 10  # Number of agents
 region_radius = 1  # Radius of the circular region where agents operate
 Y_num = 8  # Number of target points
-epochs = 1000  # Number of iterations for the simulation
+epochs = 100  # Number of iterations for the simulation
 delta = 0.0001  # Detection error threshold for penalties
 num_samples = 5  # Number of stochastic samples (for randomness in simulations)
 tau = 1  # Communication delay (in steps)
@@ -256,59 +256,11 @@ def run_multiple_trials(num_trials, Y, epochs, tau, step_size_func, delta, kappa
     np.save('P_values.npy', all_P_values)  # Save P(x) values to a file
 
     # Plot mean trajectories and gradients
-    plot_mean_trajectory(np.mean(all_F_values, axis=0), np.std(all_F_values, axis=0), 'F(x)')
-    plot_mean_trajectory(np.mean(all_P_values, axis=0), np.std(all_P_values, axis=0), 'P(x)')
-    plot_gradient_norms(np.mean(all_gradient_norms, axis=0))
+    pm.plot_mean_trajectory(np.mean(all_F_values, axis=0), np.std(all_F_values, axis=0), 'F(x)')
+    pm.plot_mean_trajectory(np.mean(all_P_values, axis=0), np.std(all_P_values, axis=0), 'P(x)')
+    pm.plot_gradient_norms(np.mean(all_gradient_norms, axis=0))
 
-# Plot a heatmap of detection error probability
-def plot_detection_error_heatmap(agents, targets, region_radius):
-    grid_size = 100  # Define resolution of the heatmap grid
-    x = np.linspace(-region_radius, region_radius, grid_size)
-    y = np.linspace(-region_radius, region_radius, grid_size)
-    X, Y = np.meshgrid(x, y)
 
-    Z = np.zeros_like(X)
-
-    global xi_samples
-
-    # Compute detection error probability for each grid point
-    for i in range(grid_size):
-        for j in range(grid_size):
-            point = np.array([X[i, j], Y[i, j]])
-            detection_error_prob = np.mean(
-                [np.prod([1 - agent.detection_probability(point, xi_sample) for agent in agents])
-                 for xi_sample in xi_samples]
-            )
-            Z[i, j] = detection_error_prob
-
-    # Plot the heatmap
-    plt.figure(figsize=(8, 8))
-    plt.contourf(X, Y, Z, cmap='viridis')
-    plt.colorbar(label='Detection Error Probability')
-
-    # Plot agent positions
-    plt.scatter([agent.position[0] for agent in agents], 
-                [agent.position[1] for agent in agents], 
-                c='blue', label='Agent', s=50, edgecolor='black')
-
-    # Plot target positions
-    plt.scatter([target[0] for target in targets], 
-                [target[1] for target in targets], 
-                c='red', marker='o', label='Target', s=50)
-
-    # Add region boundary
-    unit_disk = plt.Circle((0, 0), region_radius, color='black', fill=False, linestyle='--', linewidth=2)
-    plt.gca().add_artist(unit_disk)
-
-    plt.xlim(-region_radius, region_radius)
-    plt.ylim(-region_radius, region_radius)
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    plt.title('Heat Map of Detection Error Probability with Targets (Red Dots) and Unit Disk')
-    plt.legend()
-    plt.grid(True)
-    plt.gca().set_aspect('equal', adjustable='box')
-    plt.show()
 
 # Function to run a single trial
 def run_single_trial(Y, epochs, tau, step_size_func, delta, kappa, trial_idx):
@@ -322,93 +274,14 @@ def run_single_trial(Y, epochs, tau, step_size_func, delta, kappa, trial_idx):
     position_history, gradient_norms = sgd_instance.run()
 
     # Plot results
-    plot_trajectories_with_delays(position_history, agents, Y, region_radius)
-    plot_detection_error_heatmap(agents, Y, region_radius) 
+    pm.plot_trajectories_with_delays(position_history, agents, Y, region_radius)
+    pm.plot_detection_error_heatmap(agents, Y, region_radius, xi_samples)  
     F_values, P_values = sgd_instance.calculate_F_P_values(position_history)
 
     return F_values, P_values, gradient_norms
 
-# Plot mean trajectory of objective values over time
-def plot_mean_trajectory(mean_values, std_values, label):
-    plt.figure()
-    plt.plot(mean_values, label=f'Mean {label}')
-    plt.fill_between(range(len(mean_values)), mean_values - std_values, mean_values + std_values, alpha=0.3)
-    plt.xlabel('Iterations')
-    plt.ylabel(label)
-    plt.legend()
-    plt.show()
 
-# Plot gradient norms to monitor convergence
-def plot_gradient_norms(gradient_norms, window_size=10):
-    moving_avg = np.convolve(gradient_norms, np.ones(window_size) / window_size, mode='valid')
-    plt.figure()
-    plt.plot(moving_avg, label="Gradient Norm (Moving Avg)")
-    plt.xlabel('Iterations')
-    plt.ylabel('Gradient Norm')
-    plt.legend()
-    plt.show()
-
-# Plot convergence of F(x) and P(x) over time
-def plot_convergence(F_values, P_values):
-    epochs = len(F_values)
-    
-    # Plot F(x) convergence
-    plt.figure(figsize=(10, 6))
-    plt.plot(F_values, label='F(x)', color='blue')
-    plt.xlabel('Epochs')
-    plt.ylabel('F(x)')
-    plt.title('Convergence of F(x)')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-    # Plot P(x) convergence
-    plt.figure(figsize=(10, 6))
-    plt.plot(P_values, label='P(x)', color='red')
-    plt.xlabel('Epochs')
-    plt.ylabel('P(x)')
-    plt.title('Convergence of P(x)')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-# Plot the trajectories of agents, highlighting delayed broadcasts
-def plot_trajectories_with_delays(position_history, agents, Y, region_radius):
-    plt.figure(figsize=(8, 8))
-
-    # Plot the unit disk (region boundary)
-    unit_disk = plt.Circle((0, 0), region_radius, color='black', fill=False, linestyle='--', linewidth=2)
-    plt.gca().add_artist(unit_disk)
-
-    # Plot agent trajectories and broadcast points
-    for i, agent in enumerate(agents):
-        positions = position_history[:, i, :]
-
-        # Plot the agent's trajectory
-        plt.plot(positions[:, 0], positions[:, 1], label=f'Agent {i+1}')
-
-        # Plot the positions where broadcasts happened
-        if agent.broadcasted_positions:
-            broadcasted_positions = np.array(agent.broadcasted_positions)
-            plt.scatter(broadcasted_positions[:, 0], broadcasted_positions[:, 1], 
-                        label=f'Broadcast {i+1}', edgecolor='black', color='blue', marker='o', s=50)
-
-    # Plot target positions
-    plt.scatter([target[0] for target in Y], [target[1] for target in Y], 
-                c='red', marker='x', label='Target', s=100)
-
-    # Set plot limits and labels
-    plt.xlim(-region_radius, region_radius)
-    plt.ylim(-region_radius, region_radius)
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    plt.title('Agent Trajectories with Delayed Broadcasts')
-    plt.legend()
-    plt.grid(True)
-    plt.gca().set_aspect('equal', adjustable='box')
-    plt.show()
-
-# Run multiple trials of the simulation
+ # Main execution
 Y = initialize_positions(region_radius, Y_num)
 run_multiple_trials(num_trials, Y, epochs, tau, step_size_rule_1, delta, kappa)
 
