@@ -6,18 +6,18 @@ from scipy.integrate import dblquad
 from scipy.stats import zipf
 
 # Define constants for the simulation
-D = 10  # Number of agents
+D = 15  # Number of agents
 region_radius = 1  # Radius of the circular region where agents operate
 Y_num = 8  # Number of target points
-epochs = 1000  # Number of iterations for the simulation
+epochs = 100  # Number of iterations for the simulation
 delta = 0.0001  # Detection error threshold for penalties
 num_samples = 5  # Number of stochastic samples (for randomness in simulations)
 tau = 1  # Communication delay (in steps)
-num_trials = 1  # Number of simulation trials to run
-kappa = 10  # Penalty scaling factor
+num_trials = 10  # Number of simulation trials to run
+kappa = 2  # Penalty scaling factor
 xi_samples = np.random.uniform(30, 31, num_samples)  # Random xi samples for detection probabilities
 z = 1.5  # Zipf distribution parameter (for delays)
-max_broadcast_time = 100  # Maximum allowed time for broadcasting positions
+max_broadcast_time = 50  # Maximum allowed time for broadcasting positions
 
 # Step size rules for gradient descent
 def step_size_rule_1(n):
@@ -241,10 +241,9 @@ def initialize_positions(radius, num_points):
     return points
 
 # Run multiple simulation trials in parallel
-def run_multiple_trials(num_trials, Y, epochs, tau, step_size_func, delta, kappa):
+def run_multiple_trials(num_trials, Y, initial_positions, epochs, tau, step_size_func, delta, kappa):
     results = Parallel(n_jobs=-1)(
-        delayed(run_single_trial)(Y, epochs, tau, step_size_func, delta, kappa, i)
-        for i in range(num_trials)
+        delayed(run_single_trial)(Y,initial_positions,epochs,tau,step_size_func,delta,kappa,i) for i in range(num_trials)
     )
 
     all_F_values, all_P_values, all_gradient_norms = zip(*results)
@@ -260,9 +259,8 @@ def run_multiple_trials(num_trials, Y, epochs, tau, step_size_func, delta, kappa
 
 
 # Function to run a single trial
-def run_single_trial(Y, epochs, tau, step_size_func, delta, kappa, trial_idx):
-    initial_positions = initialize_positions(region_radius, D)  # Initialize agent positions
-    agents = [Agent(position, tau=tau) for position in initial_positions]  # Create agents
+def run_single_trial(Y, initial_positions, epochs, tau, step_size_func, delta, kappa, trial_idx):
+    agents = [Agent(position, tau=tau) for position in initial_positions]  
     
     pm.plot_initial_positions(np.array([agent.position for agent in agents]), Y, region_radius)  # Plot initial positions
 
@@ -279,9 +277,12 @@ def run_single_trial(Y, epochs, tau, step_size_func, delta, kappa, trial_idx):
 
 
  # Main execution
-Y = initialize_positions(region_radius, Y_num)
-run_multiple_trials(num_trials, Y, epochs, tau, step_size_rule_1, delta, kappa)
+Y = initialize_positions(region_radius, Y_num)  # Initialize target positions once
+initial_positions = initialize_positions(region_radius, D)  # Initialize agent positions once
+
+# Run multiple trials with step_size_rule_1
+run_multiple_trials(num_trials, Y, initial_positions, epochs, tau, step_size_rule_1, delta, kappa)
 
 # Run with different p-values for step_size_rule_2
 for p_value in {2, 3, 4, 5}:
-    run_multiple_trials(num_trials, Y, epochs, tau, lambda epoch: step_size_rule_2(epoch, p_value), delta, kappa)
+    run_multiple_trials(num_trials,Y,initial_positions,epochs,tau,lambda epoch: step_size_rule_2(epoch, p_value),delta,kappa,)
