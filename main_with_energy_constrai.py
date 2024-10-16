@@ -312,23 +312,24 @@ def initialize_positions(radius, num_points):
     return points
 
 
-def run_multiple_trials(num_trials, Y, epochs, tau, step_size_func, delta, kappa):
+def run_multiple_trials(num_trials, Y, initial_positions, epochs, tau, step_size_func, delta, kappa):
     results = Parallel(n_jobs=-1)(
-        delayed(run_single_trial)(Y, epochs, tau, step_size_func, delta, kappa, i)
-        for i in range(num_trials)
+        delayed(run_single_trial)(Y,initial_positions,epochs,tau, step_size_func,delta,kappa,i) for i in range(num_trials)
     )
+
     all_F_values, all_P_values, all_gradient_norms = zip(*results)
 
-    np.save('F_values.npy', all_F_values)
-    np.save('P_values.npy', all_P_values)
+    np.save('F_values.npy', all_F_values)  # Save F(x) values to a file
+    np.save('P_values.npy', all_P_values)  # Save P(x) values to a file
 
+    # Plot mean trajectories and gradients
     pm.plot_mean_trajectory(np.mean(all_F_values, axis=0), np.std(all_F_values, axis=0), 'F(x)')
     pm.plot_mean_trajectory(np.mean(all_P_values, axis=0), np.std(all_P_values, axis=0), 'P(x)')
     pm.plot_gradient_norms(np.mean(all_gradient_norms, axis=0))
 
-# Updated run_single_trial to use plot_module functions
 
-def run_single_trial(Y, epochs, tau, step_size_func, delta, kappa, trial_idx):
+
+def run_single_trial(Y, initial_positions, epochs, tau, step_size_func, delta, kappa, trial_idx):
     states = [0, 5, 10]
     stationary_transition_matrix = np.array([
         [0.8, 0.1, 0.1],
@@ -336,15 +337,16 @@ def run_single_trial(Y, epochs, tau, step_size_func, delta, kappa, trial_idx):
         [0.1, 0.2, 0.7]
     ])
     energy_harvesters = [MarkovEnergyHarvester(states, stationary_transition_matrix) for _ in range(D)]
-    initial_positions = initialize_positions(region_radius, D)
     agents = [Agent(position, tau=tau, energy_harvester=energy_harvester)
               for position, energy_harvester in zip(initial_positions, energy_harvesters)]
     
     pm.plot_initial_positions(np.array([agent.position for agent in agents]), Y, region_radius)
 
+    # Run SGD optimization
     sgd_instance = SGD(agents, Y, epochs, tau, step_size_func, delta, kappa)
     position_history, gradient_norms = sgd_instance.run()
 
+    # Plot results
     pm.plot_trajectories_with_delays(position_history, agents, Y, region_radius)
     pm.plot_detection_error_heatmap(agents, Y, region_radius, xi_samples)
     
@@ -352,9 +354,12 @@ def run_single_trial(Y, epochs, tau, step_size_func, delta, kappa, trial_idx):
     return F_values, P_values, gradient_norms
 
 # Run multiple trials
-Y = initialize_positions(region_radius, Y_num)
-run_multiple_trials(num_trials, Y, epochs, tau, step_size_rule_1, delta, kappa)
+Y = initialize_positions(region_radius, Y_num)  # Initialize target positions once
+initial_positions = initialize_positions(region_radius, D)  # Initialize agent positions once
+
+# Run multiple trials with step_size_rule_1
+run_multiple_trials(num_trials, Y, initial_positions, epochs, tau, step_size_rule_1, delta, kappa)
 
 # Run with different p-values for step_size_rule_2
 for p_value in {2, 3, 4, 5}:
-    run_multiple_trials(num_trials, Y, epochs, tau, lambda epoch: step_size_rule_2(epoch, p_value), delta, kappa)
+    run_multiple_trials(num_trials,Y,initial_positions,epochs,tau,lambda epoch: step_size_rule_2(epoch, p_value),delta,kappa,)
