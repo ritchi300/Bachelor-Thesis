@@ -422,17 +422,23 @@ def run_single_trial(Y, initial_positions, epochs, tau, step_size_func, delta, k
         # Close file after writing all epochs for this trial
     
    
-    pm.plot_initial_positions(np.array([agent.position for agent in agents]), Y, region_radius)
+    pm.plot_initial_positions(np.array([agent.position for agent in agents]), Y, region_radius, 
+                          filename=f'results/initial_positions_kappa{kappa}_delta{delta}_{step_size_name}.png')
+
+    
 
     # Run SGD optimization
     sgd_instance = SGD(agents, Y, epochs, tau, step_size_func, delta, kappa, xi_samples)
     position_history, gradient_norms = sgd_instance.run()
 
    
-     pm.plot_trajectories_with_delays(position_history, agents, Y, region_radius)
-     pm.plot_detection_error_heatmap(agents, Y, region_radius, xi_samples)
-    
+     pm.plot_trajectories_with_delays(
+    position_history, agents, Y, region_radius, 
+    filename=f'results/trajectories_with_delays_kappa{kappa}_delta{delta}_{step_size_name}.png')
+    pm.plot_detection_error_heatmap(agents, Y, region_radius, xi_samples, 
+                                filename=f'results/detection_error_heatmap_kappa{kappa}_delta{delta}_{step_size_name}.png')
     F_values, P_values = sgd_instance.calculate_F_P_values(position_history)
+
     return F_values, P_values, gradient_norms
 
 def main():
