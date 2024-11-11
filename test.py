@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import plot_module as pm
 from scipy.integrate import dblquad
 from scipy.stats import zipf as zipf
-
+import os 
 # Enable energy constraints
 ENABLE_ENERGY_CONSTRAINTS = True  # Set to True to enable energy constraints
 MAX_ENERGY = 100  # Maximum energy agents can store
@@ -329,27 +329,38 @@ def run_multiple_trials(num_trials, Y, initial_positions, epochs, tau, step_size
 
     all_F_values, all_P_values, all_gradient_norms = zip(*results)
 
-    # Save results with parameter details in the filename
-    np.save(f'F_values_kappa{kappa}_delta{delta}_{step_size_name}.npy', all_F_values)
-    np.save(f'P_values_kappa{kappa}_delta{delta}_{step_size_name}.npy', all_P_values)
+    # Erstellen Sie ein Verzeichnis, um die Ergebnisse zu speichern
+    os.makedirs("results", exist_ok=True)
 
-    # Plot mean trajectories and gradients
-    pm.plot_mean_trajectory(
+    # Speichern der Ergebnisse als numpy-Dateien mit eindeutigen Dateinamen für kappa, delta und step_size
+    np.save(f'results/F_values_kappa{kappa}_delta{delta}_{step_size_name}.npy', all_F_values)
+    np.save(f'results/P_values_kappa{kappa}_delta{delta}_{step_size_name}.npy', all_P_values)
+
+    # Plots als Dateien speichern
+    fig1 = pm.plot_mean_trajectory(
         np.mean(all_F_values, axis=0),
         np.std(all_F_values, axis=0),
         'F(x)',
         title=f'F(x) for kappa={kappa}, delta={delta}, step_size={step_size_name}'
     )
-    pm.plot_mean_trajectory(
+    fig1.savefig(f'results/Fx_kappa{kappa}_delta{delta}_{step_size_name}.png')
+    plt.close(fig1)  # Schließen der Grafik
+
+    fig2 = pm.plot_mean_trajectory(
         np.mean(all_P_values, axis=0),
         np.std(all_P_values, axis=0),
         'P(x)',
         title=f'P(x) for kappa={kappa}, delta={delta}, step_size={step_size_name}'
     )
-    pm.plot_gradient_norms(
+    fig2.savefig(f'results/Px_kappa{kappa}_delta{delta}_{step_size_name}.png')
+    plt.close(fig2)
+
+    fig3 = pm.plot_gradient_norms(
         np.mean(all_gradient_norms, axis=0),
         title=f'Gradient Norms for kappa={kappa}, delta={delta}, step_size={step_size_name}'
     )
+    fig3.savefig(f'results/gradient_norms_kappa{kappa}_delta{delta}_{step_size_name}.png')
+    plt.close(fig3)
 
 def run_single_trial(Y, initial_positions, epochs, tau, step_size_func, delta, kappa, trial_idx, base_seed, step_size_name):
     # Set random seed for reproducibility
