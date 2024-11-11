@@ -16,7 +16,7 @@ ENERGY_HARVEST_RATE = 0  # Energy harvested per epoch (stochastic)
 D = 10  # Number of agents
 region_radius = 1  # Region radius
 Y_num = 8  # Number of target points
-epochs = 2000  # Number of iterations
+epochs = 10  # Number of iterations
 delta = 0.0001  # Global delta variable
 num_samples = 5  # Number of stochastic samples
 tau = 1  # Communication delay in steps
@@ -432,7 +432,7 @@ def run_single_trial(Y, initial_positions, epochs, tau, step_size_func, delta, k
     position_history, gradient_norms = sgd_instance.run()
 
    
-     pm.plot_trajectories_with_delays(
+    pm.plot_trajectories_with_delays(
     position_history, agents, Y, region_radius, 
     filename=f'results/trajectories_with_delays_kappa{kappa}_delta{delta}_{step_size_name}.png')
     pm.plot_detection_error_heatmap(agents, Y, region_radius, xi_samples, 
