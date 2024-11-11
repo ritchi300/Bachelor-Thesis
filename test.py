@@ -16,7 +16,7 @@ ENERGY_HARVEST_RATE = 0  # Energy harvested per epoch (stochastic)
 D = 10  # Number of agents
 region_radius = 1  # Region radius
 Y_num = 8  # Number of target points
-epochs = 1000  # Number of iterations
+epochs = 2000  # Number of iterations
 delta = 0.0001  # Global delta variable
 num_samples = 5  # Number of stochastic samples
 tau = 1  # Communication delay in steps
@@ -334,22 +334,22 @@ def run_multiple_trials(num_trials, Y, initial_positions, epochs, tau, step_size
     np.save(f'P_values_kappa{kappa}_delta{delta}_{step_size_name}.npy', all_P_values)
 
     # Plot mean trajectories and gradients
-    pm.plot_mean_trajectory(
-        np.mean(all_F_values, axis=0),
-        np.std(all_F_values, axis=0),
-        'F(x)',
-        title=f'F(x) for kappa={kappa}, delta={delta}, step_size={step_size_name}'
-    )
-    pm.plot_mean_trajectory(
-        np.mean(all_P_values, axis=0),
-        np.std(all_P_values, axis=0),
-        'P(x)',
-        title=f'P(x) for kappa={kappa}, delta={delta}, step_size={step_size_name}'
-    )
-    pm.plot_gradient_norms(
-        np.mean(all_gradient_norms, axis=0),
-        title=f'Gradient Norms for kappa={kappa}, delta={delta}, step_size={step_size_name}'
-    )
+    #pm.plot_mean_trajectory(
+        #np.mean(all_F_values, axis=0),
+        #np.std(all_F_values, axis=0),
+        #'F(x)',
+        #title=f'F(x) for kappa={kappa}, delta={delta}, step_size={step_size_name}'
+    #)
+    #pm.plot_mean_trajectory(
+        #np.mean(all_P_values, axis=0),
+        #np.std(all_P_values, axis=0),
+        #'P(x)',
+        #title=f'P(x) for kappa={kappa}, delta={delta}, step_size={step_size_name}'
+    #)
+    #pm.plot_gradient_norms(
+        #np.mean(all_gradient_norms, axis=0),
+        #title=f'Gradient Norms for kappa={kappa}, delta={delta}, step_size={step_size_name}'
+    #)
 
 def run_single_trial(Y, initial_positions, epochs, tau, step_size_func, delta, kappa, trial_idx, base_seed, step_size_name):
     # Set random seed for reproducibility
@@ -366,6 +366,49 @@ def run_single_trial(Y, initial_positions, epochs, tau, step_size_func, delta, k
     energy_harvesters = [MarkovEnergyHarvester(states, stationary_transition_matrix, random_state=random_state) for _ in range(D)]
     agents = [Agent(position, tau=tau, energy_harvester=energy_harvester, random_state=random_state)
               for position, energy_harvester in zip(initial_positions, energy_harvesters)]
+    
+        # Open file to write trial results, including step_size_name, kappa, and delta
+    filename = f"trial_{trial_idx}_step_{step_size_name}_kappa_{kappa}_delta_{delta}_results.txt"
+    with open(filename, "w") as file:
+        file.write(f"Trial {trial_idx} Results (Step Size Rule: {step_size_name}, Kappa: {kappa}, Delta: {delta}):\n")
+        
+        # Write header information for targets and initial positions of agents
+        file.write("Target Positions (Y):\n")
+        for i, target in enumerate(Y):
+            file.write(f"Target {i}: {target}\n")
+        file.write("\nInitial Agent Positions:\n")
+        for i, agent in enumerate(agents):
+            file.write(f"Agent {i} Initial Position: {agent.position}\n")
+        
+        # Write main header for epoch data
+        file.write(f"\n{'Epoch':<10} {'F(x)':<15} {'P(x)':<15} {'f(x)':<15} {'Avg Gradient Norm':<20}\n")
+        
+        # Run SGD optimization
+        sgd_instance = SGD(agents, Y, epochs, tau, step_size_func, delta, kappa, xi_samples)
+        
+        # Store energy and gradient details across epochs
+        position_history, gradient_norms = sgd_instance.run()
+        for epoch in range(epochs):
+            f_value = sgd_instance.f()
+            p_value = sgd_instance.calculate_P()
+            f_F_value = sgd_instance.calculate_F()
+            avg_gradient_norm = gradient_norms[epoch]
+            
+            # Write epoch summary data
+            file.write(f"{epoch:<10} {f_F_value:<15.6f} {p_value:<15.6f} {f_value:<15.6f} {avg_gradient_norm:<20.6f}\n")
+            
+            # Write positions, energy level, and energy usage for each agent
+            file.write(f"\nEpoch {epoch} Agent Details:\n")
+            for i, agent in enumerate(agents):
+                # Calculate used energy
+                initial_energy = agent.energy
+                agent.harvest_energy(epoch)  # Harvest energy for this epoch
+                energy_used = initial_energy - agent.energy + agent.energy_harvester.harvest_energy_stationary()
+                
+                # Write agent's position, energy level, and energy used
+                file.write(f"Agent {i} Position: {agent.position}, Energy Level: {agent.energy:.2f}, Energy Used: {energy_used:.2f}\n")
+        
+        # Close file after writing all epochs for this trial
     
     # Optionally, disable plotting inside this function for batch runs
     # pm.plot_initial_positions(np.array([agent.position for agent in agents]), Y, region_radius)
