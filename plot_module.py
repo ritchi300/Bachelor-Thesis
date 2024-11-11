@@ -5,7 +5,7 @@ import os
 # Verzeichnis zum Speichern der Plots erstellen
 os.makedirs("plots", exist_ok=True)
 
-def plot_initial_positions(agent_positions, targets, region_radius):
+def plot_initial_positions(agent_positions, targets, region_radius, filename: None):
     plt.figure(figsize=(8, 8))
     plt.scatter(agent_positions[:, 0], agent_positions[:, 1], c='blue', label='Agents', s=100)
     plt.scatter(targets[:, 0], targets[:, 1], c='red', marker='x', label='Targets', s=100)
@@ -22,7 +22,7 @@ def plot_initial_positions(agent_positions, targets, region_radius):
     plt.savefig("plots/initial_positions.png")
     plt.close()
 
-def plot_trajectories_with_delays(position_history, agents, targets, region_radius):
+def plot_trajectories_with_delays(position_history, agents, targets, region_radius, filename: None):
     plt.figure(figsize=(8, 8))
     unit_disk = plt.Circle((0, 0), region_radius, color='black', fill=False, linestyle='--', linewidth=2)
     plt.gca().add_artist(unit_disk)
@@ -56,7 +56,7 @@ def plot_trajectories_with_delays(position_history, agents, targets, region_radi
     plt.savefig("plots/trajectories_with_delays.png")
     plt.close()
 
-def plot_detection_error_heatmap(agents, targets, region_radius, xi_samples):
+def plot_detection_error_heatmap(agents, targets, region_radius, xi_samples, filename: None):
     grid_size = 100
     x = np.linspace(-region_radius, region_radius, grid_size)
     y = np.linspace(-region_radius, region_radius, grid_size)
@@ -93,26 +93,25 @@ def plot_detection_error_heatmap(agents, targets, region_radius, xi_samples):
     plt.close()
 
 def plot_mean_trajectory(mean_values, std_values, label, title=''):
-    plt.figure()
-    plt.plot(mean_values, label=f'Mean {label}')
-    plt.fill_between(range(len(mean_values)), mean_values - std_values, mean_values + std_values, alpha=0.3)
-    plt.xlabel('Iterations')
-    plt.ylabel(label)
-    plt.title(title)
-    plt.legend()
-    plt.savefig(f"plots/{label}_mean_trajectory.png")
-    plt.close()
+    fig, ax = plt.subplots()
+    ax.plot(mean_values, label=f'Mean {label}')
+    ax.fill_between(range(len(mean_values)), mean_values - std_values, mean_values + std_values, alpha=0.3)
+    ax.set_xlabel('Iterations')
+    ax.set_ylabel(label)
+    ax.set_title(title)
+    ax.legend()
+    return fig  # Return the figure object
+     
 
 def plot_gradient_norms(gradient_norms, window_size=10, title=''):
     moving_avg = np.convolve(gradient_norms, np.ones(window_size) / window_size, mode='valid')
-    plt.figure()
-    plt.plot(moving_avg, label="Gradient Norm (Moving Avg)")
-    plt.xlabel('Iterations')
-    plt.ylabel('Gradient Norm')
-    plt.title(title)
-    plt.legend()
-    plt.savefig("plots/gradient_norms.png")
-    plt.close()
+    fig, ax = plt.subplots()
+    ax.plot(moving_avg, label="Gradient Norm (Moving Avg)")
+    ax.set_xlabel('Iterations')
+    ax.set_ylabel('Gradient Norm')
+    ax.set_title(title)
+    ax.legend()
+    return fig  # Return the figure object
 
 def plot_convergence(F_values, P_values):
     epochs = len(F_values)
