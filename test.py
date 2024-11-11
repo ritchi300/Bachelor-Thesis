@@ -334,22 +334,22 @@ def run_multiple_trials(num_trials, Y, initial_positions, epochs, tau, step_size
     np.save(f'P_values_kappa{kappa}_delta{delta}_{step_size_name}.npy', all_P_values)
 
     # Plot mean trajectories and gradients
-    #pm.plot_mean_trajectory(
-        #np.mean(all_F_values, axis=0),
-        #np.std(all_F_values, axis=0),
-        #'F(x)',
-        #title=f'F(x) for kappa={kappa}, delta={delta}, step_size={step_size_name}'
-    #)
-    #pm.plot_mean_trajectory(
-        #np.mean(all_P_values, axis=0),
-        #np.std(all_P_values, axis=0),
-        #'P(x)',
-        #title=f'P(x) for kappa={kappa}, delta={delta}, step_size={step_size_name}'
-    #)
-    #pm.plot_gradient_norms(
-        #np.mean(all_gradient_norms, axis=0),
-        #title=f'Gradient Norms for kappa={kappa}, delta={delta}, step_size={step_size_name}'
-    #)
+    pm.plot_mean_trajectory(
+        np.mean(all_F_values, axis=0),
+        np.std(all_F_values, axis=0),
+        'F(x)',
+        title=f'F(x) for kappa={kappa}, delta={delta}, step_size={step_size_name}'
+    )
+    pm.plot_mean_trajectory(
+        np.mean(all_P_values, axis=0),
+        np.std(all_P_values, axis=0),
+        'P(x)',
+        title=f'P(x) for kappa={kappa}, delta={delta}, step_size={step_size_name}'
+    )
+    pm.plot_gradient_norms(
+        np.mean(all_gradient_norms, axis=0),
+        title=f'Gradient Norms for kappa={kappa}, delta={delta}, step_size={step_size_name}'
+    )
 
 def run_single_trial(Y, initial_positions, epochs, tau, step_size_func, delta, kappa, trial_idx, base_seed, step_size_name):
     # Set random seed for reproducibility
@@ -410,16 +410,16 @@ def run_single_trial(Y, initial_positions, epochs, tau, step_size_func, delta, k
         
         # Close file after writing all epochs for this trial
     
-    # Optionally, disable plotting inside this function for batch runs
-    # pm.plot_initial_positions(np.array([agent.position for agent in agents]), Y, region_radius)
+   
+    pm.plot_initial_positions(np.array([agent.position for agent in agents]), Y, region_radius)
 
     # Run SGD optimization
     sgd_instance = SGD(agents, Y, epochs, tau, step_size_func, delta, kappa, xi_samples)
     position_history, gradient_norms = sgd_instance.run()
 
-    # Optionally, disable plotting inside this function for batch runs
-    # pm.plot_trajectories_with_delays(position_history, agents, Y, region_radius)
-    # pm.plot_detection_error_heatmap(agents, Y, region_radius, xi_samples)
+   
+     pm.plot_trajectories_with_delays(position_history, agents, Y, region_radius)
+     pm.plot_detection_error_heatmap(agents, Y, region_radius, xi_samples)
     
     F_values, P_values = sgd_instance.calculate_F_P_values(position_history)
     return F_values, P_values, gradient_norms
