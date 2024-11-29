@@ -335,25 +335,48 @@ class SGD:
         return position_history, self.gradient_norms
 
     def calculate_F(self, num_points=50000):
-        # Generieren von zufälligen Punkten innerhalb des Kreises
-        angles = np.random.uniform(0, 2 * np.pi, num_points)
-        radii = np.sqrt(np.random.uniform(0, region_radius ** 2, num_points))
-        x = radii * np.cos(angles)
-        y = radii * np.sin(angles)
-        points = np.column_stack((x, y))
+        def calculate_F(self):
+        agent_positions = np.array([agent.position for agent in self.agents])
+        xi_samples = self.xi_samples
+        region_radius = 1  # Radius of the circular region
+        F_x = 0.0
 
-        # Berechnung der Erkennungsfehler für alle Punkte
-        agent_positions = np.array([agent.position for agent in self.agents])  # Shape: (num_agents, 2)
-        distances_sq = np.sum((points[:, np.newaxis, :] - agent_positions) ** 2, axis=2)  # Shape: (num_points, num_agents)
-        xi_samples = np.array(self.xi_samples)[:, np.newaxis, np.newaxis]  # Shape: (num_samples, 1, 1)
-        detection_probs = np.exp(-xi_samples * distances_sq[np.newaxis, :, :])  # Shape: (num_samples, num_points, num_agents)
-        one_minus_detection_probs = 1 - detection_probs
-        detection_errors = np.prod(one_minus_detection_probs, axis=2)  # Shape: (num_samples, num_points)
-        detection_error_prob = np.mean(detection_errors)
+        for xi_sample in xi_samples:
+            # Define the integrand function
+            def integrand(x, y):
+                # Compute detection error at (x, y) for given ξ
+                detection_error = np.prod([
+                    1 - np.exp(-xi_sample * ((x - x_i[0])**2 + (y - x_i[1])**2))
+                    for x_i in agent_positions
+                ])
+                return detection_error
 
-        # Mittelwert über alle Punkte und xi_samples
-        F_x = detection_error_prob
-        return F_x 
+            # Define the bounds for x and y
+            def x_bounds():
+                return -region_radius, region_radius
+
+            def y_lower(x):
+                return -np.sqrt(region_radius**2 - x**2)
+
+            def y_upper(x):
+                return np.sqrt(region_radius**2 - x**2)
+
+            # Perform the double integral over x and y
+            integral_result, error = dblquad(
+                integrand,
+                x_bounds()[0],  # Lower bound for x
+                x_bounds()[1],  # Upper bound for x
+                y_lower,        # Lower bound function for y
+                y_upper         # Upper bound function for y
+            )
+
+            # Normalize the result by the area of the region
+            F_x += integral_result / (np.pi * region_radius**2)
+
+        # Average over the ξ samples
+        F_x = F_x / len(xi_samples)
+
+        return F_x
 
     def calculate_P(self):
         penalties = []
