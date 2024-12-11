@@ -29,11 +29,10 @@ def step_size_rule_1(n):
     return 1 / ((n / 100) + 10)
 
 def step_size_rule_2(n, p):
-    # Calculate q based on p
-    q = min(0.5 * (1 + 1 / p - 1), 1)
+    exponent = 1.0 / (p - 1)
     if n <= 0:
         n = 1  # avoid division by zero 
-    return 1 / ((n ** q / 100) + 10)
+    return 1 / ((n ** exponent / 100) + 10)
 
 # Zipf distribution to model delays in broadcasting positions
 def zipf_delay(z, size=1, random_state=None):
@@ -50,7 +49,6 @@ def zipf_delay(z, size=1, random_state=None):
 # Energy Harvester Base Class
 class EnergyHarvester:
     def harvest_energy(self, time_step):
-        # Subclasses should implement this method
         raise NotImplementedError("Subclasses must implement harvest_energy method")
 
 # Markov Energy Harvester
@@ -87,18 +85,17 @@ class PositionHistory:
 
     def store_position(self, position, epoch):
         self.history.append((epoch, position.copy()))  
-        if len(self.history) > self.tau + 1:  # Limit history size to tau + 1 entries
-            self.history.pop(0)  # Remove the oldest entry
+        if len(self.history) > self.tau + 1: 
+            self.history.pop(0)  
 
     def get_delayed_position(self, current_epoch):
         if not self.history:
-            return None  # Return None if history is empty
-        delayed_epoch = current_epoch - self.tau  # Calculate delayed epoch
-        # Find the closest position for the delayed epoch
+            return None  
+        delayed_epoch = current_epoch - self.tau  
         for epoch, position in reversed(self.history):
             if epoch <= delayed_epoch:
                 return position
-        return self.history[-1][1]  # Return the most recent position as fallback
+        return self.history[-1][1]  # Return the most recent position
 
 class Agent:
     def __init__(self, initial_position, tau, energy_harvester, random_state=None, p_value=2):
@@ -124,7 +121,6 @@ class Agent:
         self.broadcast_times = []
 
     def start_new_epoch(self):
-        # Start tracking energy consumption for a new epoch
         self.energy_consumption_history.append(0)
 
     def get_next_broadcast_time(self):
@@ -157,14 +153,14 @@ class Agent:
         
     def get_delayed_position(self, current_epoch):
         if not self.history_manager.history:
-            return None  # Return None if there is no history
+            return None  
         zipf_delay_value = self.get_next_broadcast_time()  # Get Zipf delay for broadcasting
         delayed_epoch = current_epoch - zipf_delay_value  # Apply the delay
         # Search for the position at or before the delayed epoch
         for epoch, position in reversed(self.history_manager.history):
             if epoch <= delayed_epoch:
                 return position
-        return self.history_manager.history[-1][1]  # Fallback to the most recent position
+        return self.history_manager.history[-1][1]  
 
     def detection_probability(self, point, xi_sample, position=None):
         if position is None:
@@ -178,7 +174,7 @@ class Agent:
         energy_state = self.get_energy_state()
 
         if ENABLE_ENERGY_CONSTRAINTS and not self.can_move():
-            self.energy_consumption_history[-1] += 0  # No energy consumed
+            self.energy_consumption_history[-1] += 0 
             return
 
         # Movement probability based on energy state
@@ -247,7 +243,7 @@ class SGD:
         self.kappa = kappa  # Penalty scaling factor
         self.xi_samples = xi_samples  # Stochastic samples
 
-        # Data recording attributes
+        
         self.F_values = []
         self.P_values = []
         self.f_values = []
@@ -270,14 +266,14 @@ class SGD:
                     delayed_positions.append(delayed_position)
                     detection_prob = agent.detection_probability(target, xi_sample, position=delayed_position)
                     detection_probs.append(detection_prob)
-                    detection_error *= (1 - detection_prob)  # Update detection error
+                    detection_error *= (1 - detection_prob)  
 
                 # Calculate the gradient for each agent
                 for i, agent in enumerate(self.agents):
                     detection_prob_self = detection_probs[i]
                     delayed_position = delayed_positions[i]
                     distance_vector = delayed_position - target
-                    detection_grad = -2 * xi_sample * detection_prob_self * distance_vector  # Corrected gradient
+                    detection_grad = -2 * xi_sample * detection_prob_self * distance_vector  
 
                     # Check if detection_prob_self is 1 to avoid division by zero
                     if detection_prob_self == 1.0:
@@ -364,16 +360,16 @@ class SGD:
             # Perform the double integral over x and y
             integral_result, error = dblquad(
                 integrand,
-                x_bounds()[0],  # Lower bound for x
-                x_bounds()[1],  # Upper bound for x
-                y_lower,        # Lower bound function for y
-                y_upper         # Upper bound function for y
+                x_bounds()[0],  
+                x_bounds()[1],  
+                y_lower,        
+                y_upper         
             )
 
-            # Normalize the result by the area of the region
+            
             F_x += integral_result / (np.pi * region_radius**2)
 
-        # Average over the ξ samples
+       
         F_x = F_x / len(xi_samples)
 
         return F_x
@@ -390,10 +386,10 @@ class SGD:
                 ])
                 penalty = max(0, detection_probs - self.delta) ** 2
                 penalties_per_target.append(penalty)
-            # Average over targets for this xi_sample
+            
             average_penalty = np.mean(penalties_per_target)
             penalties.append(average_penalty)
-        # Now average over xi_samples
+        
         P_x = np.mean(penalties)
         return P_x
 
@@ -501,7 +497,6 @@ def run_multiple_trials(num_trials, Y, initial_positions, epochs, tau, step_size
         )
         for i in range(num_trials)
     )
-    # Rest of the function remains the same
 
     all_F_values, all_P_values, all_gradient_norms = zip(*results)
 
@@ -535,7 +530,7 @@ def run_multiple_trials(num_trials, Y, initial_positions, epochs, tau, step_size
         filename=gradient_norms_filename
     )
 
-# Function to run a single trial
+
 def run_single_trial(Y, initial_positions, epochs, tau, step_size_func, delta, kappa, trial_idx, base_seed, step_size_name, energy_harvester_type='stationary', p_value=2):
     # Set random seed for reproducibility
     seed = base_seed + trial_idx
@@ -580,7 +575,6 @@ def run_single_trial(Y, initial_positions, epochs, tau, step_size_func, delta, k
                 [0.2, 0.7, 0.1],
                 [0.1, 0.2, 0.7]
             ]),
-            # Add more matrices if needed
         ]
 
         # Create non-stationary energy harvesters
@@ -690,7 +684,7 @@ def main():
     }
 
     # Include the baseline step size rule for comparison
-    #step_size_functions['step_size_rule_1'] = step_size_rule_1
+    step_size_functions['step_size_rule_1'] = step_size_rule_1
 
     energy_harvester_type = 'stationary'  # or 'non_stationary'
 
@@ -702,16 +696,16 @@ def main():
     for kappa in kappa_values:
         for delta in delta_values:
             for step_size_name, step_size_func in step_size_functions.items():
-                # Debugging: Überprüfen, welche step_size_name verarbeitet werden
+               
                 print(f"Processing step size: {step_size_name}")
 
-                # Prüfen, ob '_p' im Namen enthalten ist
+               
                 if '_p' in step_size_name:
                     p_value = float(step_size_name.split('_p')[1])
                 else:
-                    p_value = None  # Keine p-Werte für step_size_rule_1
+                    p_value = None  
 
-                # Bestimme die Anzahl der Trials basierend auf dem p-Wert
+               
                 if p_value is not None and 2 < p_value < 3:
                     num_trials = num_trials_p_in_2_3
                 else:
